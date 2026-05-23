@@ -1,0 +1,16 @@
+{
+  "rules": {
+    "devices": {
+      "$deviceId": {
+        "vitals": {
+          ".read": true,
+          ".write": true
+        },
+        "events": {
+          ".read": true,
+          ".write": true
+        }
+      }
+    }
+  }
+}
