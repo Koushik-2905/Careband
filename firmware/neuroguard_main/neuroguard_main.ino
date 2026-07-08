@@ -1,4 +1,4 @@
-// NeuroGuard ESP32 Firmware v2.0 — GPS: phone BLE, SIM cell fallback
+// NeuroGuard ESP32 — GPS from patient phone (BLE) only; SMS via SIM800L
 #include "config.h"
 #if DISABLE_BROWNOUT
 #include "soc/soc.h"
@@ -19,7 +19,9 @@
 
 #if !SIMULATION_MODE
 #include <MPU6050.h>
+#if ENABLE_OLED
 #include <Adafruit_SSD1306.h>
+#endif
 #if ENABLE_HR_SENSOR && !USE_HARDWARE_LOGIC
 #include <MAX30105.h>
 #endif
@@ -29,7 +31,7 @@
 HardwareSerial gsmSerial(2);
 #endif
 
-#if !SIMULATION_MODE
+#if ENABLE_OLED && !SIMULATION_MODE
 Adafruit_SSD1306 oled(128, 64, &Wire, -1);
 static bool oledOk = false;
 #endif
@@ -48,25 +50,9 @@ bool cancelFlag = false;
 
 float gpslat = 0.0f, gpslng = 0.0f;
 bool gpsValidPhone = false;
-bool gpsValidSim = false;
 unsigned long lastGPSReceived = 0;
-unsigned long lastSimLocationAttempt = 0;
 
-static bool hasGpsFix() { return gpsValidPhone || gpsValidSim; }
-
-static bool trySimLocationFallback() {
-#if ENABLE_GSM && ENABLE_GSM_LBS && !SIMULATION_MODE
-  float lat = 0, lng = 0;
-  if (gsmFetchRoughLocation(gsmSerial, &lat, &lng)) {
-    gpslat = lat;
-    gpslng = lng;
-    gpsValidSim = true;
-    Serial.printf("[GPS] SIM rough location: %.6f, %.6f\n", gpslat, gpslng);
-    return true;
-  }
-#endif
-  return false;
-}
+static bool hasGpsFix() { return gpsValidPhone; }
 
 void showOLED(const char *l1, const char *l2, const char *l3);
 void showBpmOLED(int bpm);
@@ -87,10 +73,12 @@ void scanI2C();
 class ServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer *s) {
     deviceConnected = true;
+    Serial.println("[BLE] Phone connected");
   }
   void onDisconnect(BLEServer *s) {
     deviceConnected = false;
     BLEDevice::startAdvertising();
+    Serial.println("[BLE] Phone disconnected — advertising again");
   }
 };
 
@@ -106,7 +94,6 @@ class GPSWriteCallback : public BLECharacteristicCallbacks {
       gpslat = lat;
       gpslng = lng;
       gpsValidPhone = true;
-      gpsValidSim = false;
       lastGPSReceived = millis();
       Serial.printf("[GPS] Received from phone: %.6f, %.6f\n", gpslat, gpslng);
     }
@@ -180,7 +167,9 @@ void setup() {
 #else
   initMPU();
 #endif
+#if ENABLE_OLED
   initOLED();
+#endif
 #else
   Serial.println("I2C skipped — unplug test or set BOOT_SKIP_I2C 0");
 #endif
@@ -199,7 +188,11 @@ void setup() {
 
   showBpmOLED(detCtx.hrBPM);
   Serial.println("[BOOT] Ready @ 115200 baud");
-  Serial.println("[BOOT] Expect OLED: Place finger / Avg BPM");
+#if ENABLE_BLE_ON_BOOT
+  Serial.println("[BOOT] BLE advertising as NeuroGuard — open patient app to scan");
+#else
+  Serial.println("[BOOT] WARNING: BLE off — patient app cannot scan!");
+#endif
 }
 
 void loop() {
@@ -213,11 +206,11 @@ void loop() {
     hwState = hardwareLogicTick();
     detCtx.hrBPM = hwState.beatAvg;
 
-    if (state == MONITORING && hwState.isAbnormal && hwState.fingerPresent) {
+    if (state == MONITORING && hwState.isAbnormal) {
       state = DETECTED;
       tDetect = millis();
       activateLocal();
-      Serial.printf("[DETECT] Hardware rule: %s\n", hwState.status);
+      Serial.printf("[DETECT] %s\n", hwState.status);
     }
   }
 #endif
@@ -280,10 +273,10 @@ void loop() {
     }
     if (millis() - tAlive >= 2000) {
       tAlive = millis();
-      Serial.print("ALIVE BPM=");
+      Serial.print("[alive] BPM=");
       Serial.print(detCtx.hrBPM);
-      Serial.print(" OLED=");
-      Serial.println(oledOk ? "OK" : "NO");
+      Serial.print(" BLE=");
+      Serial.println(deviceConnected ? "connected" : "advertising");
     }
   }
 
@@ -291,21 +284,8 @@ void loop() {
 
   if (gpsValidPhone && millis() - lastGPSReceived > GPS_STALE_MS) {
     gpsValidPhone = false;
-    Serial.println("[GPS] Phone fix stale — trying SIM fallback");
-#if ENABLE_GSM && ENABLE_GSM_LBS
-    if (!gpsValidSim && millis() - lastSimLocationAttempt > 60000) {
-      lastSimLocationAttempt = millis();
-      trySimLocationFallback();
-    }
-#endif
+    Serial.println("[GPS] Phone fix stale — open patient GPS app");
   }
-
-#if ENABLE_GSM && ENABLE_GSM_LBS && !SIMULATION_MODE
-  if (!gpsValidPhone && !gpsValidSim && millis() - lastSimLocationAttempt > 120000) {
-    lastSimLocationAttempt = millis();
-    trySimLocationFallback();
-  }
-#endif
 
   if (state == ALERT_SENT && millis() - tDetect > 60000) {
     state = MONITORING;
@@ -316,20 +296,11 @@ void loop() {
 }
 
 void dispatchAlerts() {
-#if ENABLE_GSM && ENABLE_GSM_LBS
-  if (!gpsValidPhone) {
-    trySimLocationFallback();
-  }
-#endif
-
   char loc[160];
   if (hasGpsFix()) {
-    if (gpsValidSim && !gpsValidPhone)
-      snprintf(loc, 160, "maps.google.com/?q=%.6f,%.6f (approx cell)", gpslat, gpslng);
-    else
-      snprintf(loc, 160, "maps.google.com/?q=%.6f,%.6f", gpslat, gpslng);
+    snprintf(loc, 160, "maps.google.com/?q=%.6f,%.6f", gpslat, gpslng);
   } else {
-    strcpy(loc, "Location unavailable");
+    strcpy(loc, "GPS unavailable — patient phone not connected");
   }
 
   char sms[280];
@@ -355,8 +326,6 @@ void dispatchAlerts() {
     doc["valid"] = hasGpsFix();
     if (gpsValidPhone)
       doc["locSrc"] = "phone";
-    else if (gpsValidSim)
-      doc["locSrc"] = "sim";
     else
       doc["locSrc"] = "none";
     char buf[160];
@@ -418,13 +387,13 @@ void broadcastData() {
   doc["hr"] = detCtx.hrBPM;
   doc["conf"] = detCtx.confidence;
   doc["ml"] = detCtx.mlSeizureScore;
+  doc["acc"] = hwState.accelMag;
+  doc["gyro"] = hwState.gyroMag;
   doc["gpsOk"] = hasGpsFix();
   doc["lat"] = gpslat;
   doc["lng"] = gpslng;
   if (gpsValidPhone)
     doc["locSrc"] = "phone";
-  else if (gpsValidSim)
-    doc["locSrc"] = "sim";
   else
     doc["locSrc"] = "none";
   char buf[200];
@@ -575,6 +544,7 @@ void showOLED(const char *l1, const char *l2, const char *l3) {
 
 void initBLE() {
   BLEDevice::init("NeuroGuard");
+  BLEDevice::setPower(ESP_PWR_LVL_P9);
   BLEServer *srv = BLEDevice::createServer();
   srv->setCallbacks(new ServerCallbacks());
   BLEService *svc = srv->createService(SERVICE_UUID);
@@ -595,6 +565,11 @@ void initBLE() {
   dataChar->addDescriptor(new BLE2902());
 
   svc->start();
+
+  BLEAdvertising *adv = BLEDevice::getAdvertising();
+  adv->addServiceUUID(SERVICE_UUID);
+  adv->setScanResponse(true);
   BLEDevice::startAdvertising();
-  Serial.println("[BLE] Advertising as 'NeuroGuard'");
+
+  Serial.println("[BLE] Advertising as 'NeuroGuard' (patient app can scan)");
 }

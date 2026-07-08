@@ -1,4 +1,4 @@
-// Bench-tested sensor logic from your standalone sketch (logic preserved).
+// Seizure rules: pulse + accelerometer + gyroscope (MPU6050) + MAX30102.
 #include "hardware_logic.h"
 #include "config.h"
 
@@ -24,18 +24,21 @@ int beatAvg = 0;
 
 const int BUFFER_SIZE = 20;
 float accelBuffer[BUFFER_SIZE];
-int accelIndex = 0;
+float gyroBuffer[BUFFER_SIZE];
+int motionIndex = 0;
 float accelMag = 0;
 float accelAvg = 0;
+float gyroMag = 0;
+float gyroAvg = 0;
 
 void hardwareLogicInit() {
   Wire.begin(I2C_SDA, I2C_SCL);
   Wire.setClock(100000);
 
-  Serial.println("[SENSORS] Initializing MAX30102 + MPU6050...");
+  Serial.println("[SENSORS] MAX30102 + MPU6050 (accel + gyro + pulse)...");
 
   if (!particleSensor.begin(Wire, I2C_SPEED_STANDARD)) {
-    Serial.println("[SENSORS] MAX30102 not found — check SDA/SCL (21/22). HR disabled.");
+    Serial.println("[SENSORS] MAX30102 not found");
     gHrSensorOk = false;
   } else {
     particleSensor.setup(50, 4, 2, 100, 411, 4096);
@@ -48,102 +51,112 @@ void hardwareLogicInit() {
 
   gMpuOk = mpu.testConnection();
   if (!gMpuOk) {
-    Serial.println("[SENSORS] MPU6050 not found — motion/ML buffer may be empty.");
+    Serial.println("[SENSORS] MPU6050 not found");
   } else {
     mpu.initialize();
+    mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_2);
+    mpu.setFullScaleGyroRange(MPU6050_GYRO_FS_250);
+    mpu.setDLPFMode(MPU6050_DLPF_BW_42);
     Wire.beginTransmission(0x68);
     Wire.write(0x6B);
     Wire.write(0x00);
     Wire.endTransmission(true);
-    Serial.println("[SENSORS] MPU6050 OK");
+    Serial.println("[SENSORS] MPU6050 OK (accel + gyro)");
   }
   delay(200);
 
-  Serial.println("[SENSORS] Ready (IR,BPM,AX,AY,AZ,STATUS)");
+  Serial.println("[SENSORS] Detection uses pulse + accel + gyro");
 }
 
 HardwareLogicState hardwareLogicTick() {
   HardwareLogicState out;
-  int16_t ax, ay, az;
+  int16_t ax = 0, ay = 0, az = 0, gx = 0, gy = 0, gz = 0;
 
-  if (!gHrSensorOk) {
-    out.fingerPresent = false;
-    out.beatAvg = 0;
-    strcpy(out.status, "NO HR SENSOR");
-    return out;
-  }
+  out.pulseAbnormal = false;
+  out.accelAbnormal = false;
+  out.gyroAbnormal = false;
+  out.fingerPresent = false;
+  out.beatAvg = beatAvg;
 
-  long irValue = particleSensor.getIR();
-  out.irValue = irValue;
+  if (gHrSensorOk) {
+    long irValue = particleSensor.getIR();
+    out.irValue = irValue;
 
-  if (irValue < 10000) {
-    beatAvg = 0;
-    out.fingerPresent = false;
-    out.beatAvg = 0;
-    static unsigned long lastNoFinger = 0;
-    if (millis() - lastNoFinger > 2000) {
-      lastNoFinger = millis();
-      Serial.println("[HR] Place finger on MAX30102");
-    }
-    return out;
-  }
-  out.fingerPresent = true;
-
-  if (checkForBeat(irValue)) {
-    long delta = millis() - lastBeat;
-    lastBeat = millis();
-    beatsPerMinute = 60.0 / (delta / 1000.0);
-    if (beatsPerMinute > 50 && beatsPerMinute < 120) {
-      rates[rateSpot++] = (byte)beatsPerMinute;
-      rateSpot %= RATE_SIZE;
-      int total = 0;
-      for (byte i = 0; i < RATE_SIZE; i++) total += rates[i];
-      beatAvg = total / RATE_SIZE;
+    if (irValue >= 10000) {
+      out.fingerPresent = true;
+      if (checkForBeat(irValue)) {
+        long delta = millis() - lastBeat;
+        lastBeat = millis();
+        beatsPerMinute = 60.0f / (delta / 1000.0f);
+        if (beatsPerMinute > HR_LOW && beatsPerMinute < HR_HIGH + 40) {
+          rates[rateSpot++] = (byte)beatsPerMinute;
+          rateSpot %= RATE_SIZE;
+          int total = 0;
+          for (byte i = 0; i < RATE_SIZE; i++) total += rates[i];
+          beatAvg = total / RATE_SIZE;
+        }
+      }
+      out.beatAvg = beatAvg;
+      if (beatAvg > 0) {
+        out.pulseAbnormal = (beatAvg > HR_HIGH || beatAvg < HR_LOW);
+      }
+    } else {
+      beatAvg = 0;
+      out.beatAvg = 0;
     }
   }
 
   if (gMpuOk) {
-    mpu.getAcceleration(&ax, &ay, &az);
+    mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
   }
   out.ax = ax;
   out.ay = ay;
   out.az = az;
+  out.gx = gx;
+  out.gy = gy;
+  out.gz = gz;
 
-  accelMag = sqrt((float)ax * ax + (float)ay * ay + (float)az * az);
-  accelBuffer[accelIndex++] = accelMag;
-  accelIndex %= BUFFER_SIZE;
+  accelMag = sqrtf((float)ax * ax + (float)ay * ay + (float)az * az);
+  gyroMag = sqrtf((float)gx * gx + (float)gy * gy + (float)gz * gz);
+
+  accelBuffer[motionIndex] = accelMag;
+  gyroBuffer[motionIndex] = gyroMag;
+  motionIndex = (motionIndex + 1) % BUFFER_SIZE;
 
   accelAvg = 0;
-  for (int i = 0; i < BUFFER_SIZE; i++) accelAvg += accelBuffer[i];
+  gyroAvg = 0;
+  for (int i = 0; i < BUFFER_SIZE; i++) {
+    accelAvg += accelBuffer[i];
+    gyroAvg += gyroBuffer[i];
+  }
   accelAvg /= BUFFER_SIZE;
+  gyroAvg /= BUFFER_SIZE;
 
   out.accelMag = accelMag;
   out.accelAvg = accelAvg;
-  out.beatAvg = beatAvg;
+  out.gyroMag = gyroMag;
+  out.gyroAvg = gyroAvg;
 
-  bool bpmAbnormal = (beatAvg > 120 || beatAvg < 50);
-  bool highMotion = (accelAvg > 25000);
-  bool extremeShake = (accelMag > 30000);
+  out.accelAbnormal = (accelAvg > ACCEL_AVG_THR) || (accelMag > ACCEL_PEAK_THR);
+  out.gyroAbnormal = (gyroAvg > GYRO_AVG_THR) || (gyroMag > GYRO_PEAK_THR);
 
-  String status = "NORMAL";
-  if (bpmAbnormal && highMotion) {
-    status = "ABNORMAL - POSSIBLE FIT";
-  } else if (highMotion && extremeShake) {
-    status = "ABNORMAL - SHAKING";
+  // All three sensors must agree when finger is on sensor; motion-only fallback.
+  if (out.fingerPresent && out.pulseAbnormal && out.accelAbnormal && out.gyroAbnormal) {
+    strcpy(out.status, "SEIZURE HR+ACC+GYRO");
+    out.isAbnormal = true;
+  } else if (out.accelAbnormal && out.gyroAbnormal && accelMag > ACCEL_PEAK_THR) {
+    strcpy(out.status, "SEIZURE ACC+GYRO");
+    out.isAbnormal = true;
+  } else {
+    strcpy(out.status, "NORMAL");
+    out.isAbnormal = false;
   }
 
-  out.isAbnormal = status.startsWith("ABNORMAL");
-  status.toCharArray(out.status, sizeof(out.status));
-
-  static unsigned long lastCsv = 0;
-  if (millis() - lastCsv > 1000) {
-    lastCsv = millis();
-    Serial.print("[DATA] IR=");
-    Serial.print(irValue);
-    Serial.print(" BPM=");
-    Serial.print(beatAvg);
-    Serial.print(" ");
-    Serial.println(status);
+  static unsigned long lastLog = 0;
+  if (millis() - lastLog > 1000) {
+    lastLog = millis();
+    Serial.printf("[DATA] BPM=%d P=%d A=%d G=%d %s\n", beatAvg, out.pulseAbnormal,
+                  out.accelAbnormal, out.gyroAbnormal, out.status);
   }
 
   return out;

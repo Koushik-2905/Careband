@@ -3,7 +3,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import '../constants/ble_uuids.dart';
 import '../services/permissions_service.dart';
-import 'home_screen.dart';
+import 'gps_relay_screen.dart';
 
 class ScanScreen extends StatefulWidget {
   const ScanScreen({super.key});
@@ -43,11 +43,16 @@ class _ScanScreenState extends State<ScanScreen> {
     FlutterBluePlus.scanResults.listen((list) {
       if (!mounted) return;
       setState(() {
-        _results = list
-            .where((r) =>
-                r.device.platformName.contains(BleUuids.deviceName) ||
-                r.advertisementData.advName.contains(BleUuids.deviceName))
-            .toList();
+        _results = list.where((r) {
+          final name = r.device.platformName.toLowerCase();
+          final adv = r.advertisementData.advName.toLowerCase();
+          final target = BleUuids.deviceName.toLowerCase();
+          return name.contains(target) ||
+              adv.contains(target) ||
+              r.advertisementData.serviceUuids
+                  .map((u) => u.toString().toLowerCase())
+                  .contains(BleUuids.service.toLowerCase());
+        }).toList();
       });
     });
 
@@ -60,7 +65,7 @@ class _ScanScreenState extends State<ScanScreen> {
     if (!mounted) return;
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => HomeScreen(device: device)),
+      MaterialPageRoute(builder: (_) => GpsRelayScreen(device: device)),
     );
     _startScan();
   }
@@ -71,7 +76,7 @@ class _ScanScreenState extends State<ScanScreen> {
       backgroundColor: const Color(0xFF050A07),
       appBar: AppBar(
         backgroundColor: Colors.black,
-        title: const Text('NeuroGuard', style: TextStyle(color: Color(0xFF00FF9D))),
+        title: const Text('Patient GPS', style: TextStyle(color: Color(0xFF00FF9D))),
         actions: [
           IconButton(
             icon: _scanning
@@ -96,7 +101,7 @@ class _ScanScreenState extends State<ScanScreen> {
             child: _results.isEmpty
                 ? Center(
                     child: Text(
-                      _scanning ? 'Scanning for NeuroGuard…' : 'No device found. Power on ESP32.',
+                      _scanning ? 'Scanning for NeuroGuard wristband…' : 'No device found. Power on ESP32.',
                       style: const TextStyle(color: Colors.white54),
                     ),
                   )

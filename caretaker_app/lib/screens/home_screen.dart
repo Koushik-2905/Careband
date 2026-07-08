@@ -106,7 +106,7 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           _banner(
             _firebaseOk
-                ? 'Live · Firebase $deviceId'
+                ? 'Live · Firebase $deviceId · patient GPS app must stay connected'
                 : 'Firebase not configured — add google-services.json (see README)',
             ok: _firebaseOk,
           ),
@@ -114,7 +114,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _card(
             title: 'Live vitals',
             child: v == null
-                ? const Text('Waiting for patient app data…', style: TextStyle(color: Colors.white54))
+                ? const Text('Waiting for patient GPS app…', style: TextStyle(color: Colors.white54))
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -168,7 +168,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 24),
           const Text(
-            'Patient must run NeuroGuard app (BLE connected). Alerts arrive instantly when Firebase receives events.',
+            'Patient phone must run the Patient GPS app (mobile_app), stay connected over BLE, and keep location on.',
             style: TextStyle(color: Colors.white38, fontSize: 11),
             textAlign: TextAlign.center,
           ),

@@ -17,7 +17,7 @@ class NeuroGuardApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'NeuroGuard',
+      title: 'NeuroGuard Patient GPS',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,

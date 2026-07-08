@@ -20,8 +20,8 @@ Neuroguard/
 
 | App | User | Purpose |
 |-----|------|---------|
-| `mobile_app/` | **Patient** | BLE to wristband, sends GPS, live monitor |
-| `caretaker_app/` | **Caretaker** | Flutter app — **alarm + vibration + instant alerts** |
+| `mobile_app/` | **Patient** | GPS relay to wristband over BLE → Firebase |
+| `caretaker_app/` | **Caretaker (main)** | Alarm, maps, vitals from Firebase |
 | `caretaker-dashboard/` | **Caretaker** | Web dashboard — Maps, vitals (browser) |
 
 ## Caretaker apps

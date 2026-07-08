@@ -1,5 +1,5 @@
 name: neuroguard_app
-description: NeuroGuard companion — BLE GPS to ESP32, seizure alerts, Firebase.
+description: Patient phone app — BLE GPS relay to ESP32 wristband; forwards vitals to Firebase for caretaker app.
 publish_to: "none"
 version: 2.0.0+1
 
