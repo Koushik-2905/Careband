@@ -19,6 +19,7 @@ class BleGpsService {
   BluetoothCharacteristic? _gpsChar;
   BluetoothCharacteristic? _alertChar;
   BluetoothCharacteristic? _dataChar;
+  BluetoothCharacteristic? _configChar;
   Timer? _gpsTimer;
   bool connected = false;
 
@@ -38,6 +39,7 @@ class BleGpsService {
         if (u.contains("9c9c")) _gpsChar = char;
         if (u.contains("9abd")) _alertChar = char;
         if (u.contains("9abe")) _dataChar = char;
+        if (u.contains("9abf")) _configChar = char;
       }
     }
 
@@ -99,6 +101,13 @@ class BleGpsService {
   }
 
   Future<void> sendGpsNow() => _sendGpsToEsp32();
+
+  Future<void> sendRemind(String kind) async {
+    if (_configChar == null) return;
+    try {
+      await _configChar!.write(utf8.encode(kind), withoutResponse: true);
+    } catch (_) {}
+  }
 
   Future<void> disconnect() async {
     _gpsTimer?.cancel();

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config.h"
+#include "detection.h"
 
 #if ENABLE_ML
 
@@ -10,12 +11,12 @@
 #include "model_params.h"
 #include "seizure_model.h"
 #include "seizure_features.h"
-#include "detection.h"
 
 #define N_CLASSES 3
-#define TF_NUM_OPS 2
+#define TF_NUM_OPS 3
 #define TF_NUM_INPUTS N_FEATURES
 #define TF_NUM_OUTPUTS N_CLASSES
+#define TF_OP_QUANTIZE
 #define TF_OP_FULLYCONNECTED
 #define TF_OP_SOFTMAX
 

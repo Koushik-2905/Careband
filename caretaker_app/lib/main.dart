@@ -19,7 +19,7 @@ class CaretakerApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'NeuroGuard Caretaker',
+      title: 'CAREBand family',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,

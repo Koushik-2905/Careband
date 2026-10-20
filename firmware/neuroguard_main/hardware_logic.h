@@ -1,11 +1,16 @@
 #pragma once
 
 #include <Arduino.h>
-#include <MPU6050.h>
+#include <Adafruit_MPU6050.h>
 #include "MAX30105.h"
+#include "seizure_detector.h"
 
-extern MPU6050 mpu;
+extern Adafruit_MPU6050 mpu;
 extern MAX30105 particleSensor;
+extern SeizureDetector patientMonitor;
+
+extern float gLastAx, gLastAy, gLastAz, gLastGx, gLastGy, gLastGz;
+extern bool gLastMpuEventOk;
 
 struct HardwareLogicState {
   long irValue = 0;
@@ -29,3 +34,8 @@ extern bool gMpuOk;
 
 void hardwareLogicInit();
 HardwareLogicState hardwareLogicTick();
+void hardwareLogicPrintDiagnostics();
+
+bool readMpu6050Raw(int16_t &ax, int16_t &ay, int16_t &az, int16_t &gx, int16_t &gy,
+                    int16_t &gz);
+bool recoverMpu6050();

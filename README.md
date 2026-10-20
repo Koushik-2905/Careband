@@ -1,6 +1,18 @@
-# NeuroGuard
+# CAREBand AI (NeuroGuard hardware)
 
-Affordable wearable seizure detection: ESP32 + IMU + heart rate, alerts via SMS/BLE, **GPS from phone over BLE** (no NEO-6M).
+**Support, not surveillance.** Wearable possible-fall / possible-seizure detection plus an elder-first care app. Families use the **caretaker phone app** — a web dashboard is not required.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the system sketch.
+
+## What is already wired in this repo
+
+| Layer | What you have |
+|-------|----------------|
+| Wearable | ESP32, MPU6050, MAX30102, OLED, GSM SMS, BLE GPS from phone |
+| Firmware | Seizure-like rules, **fall heuristic**, 30s “Are you okay?”, SOS **hold 2s**, short press **I’m OK**, reminder buzz from phone |
+| Elder app `mobile_app/` | Large-button home, medicine, appointments, check-in, consent, Kannada/English intents, BLE gateway |
+| Family app `caretaker_app/` | Alarms, consent-filtered status, check-in/medicine, maps only if allowed |
+| Backend | Firebase RTDB (`devices/neuroguard-001/care` + events + vitals) |
 
 ## Repository layout
 
@@ -16,13 +28,14 @@ Neuroguard/
 └── PROJECT.md           # Full map
 ```
 
-## Two apps
+## Two apps (enough for family)
 
 | App | User | Purpose |
 |-----|------|---------|
-| `mobile_app/` | **Patient** | GPS relay to wristband over BLE → Firebase |
-| `caretaker_app/` | **Caretaker (main)** | Alarm, maps, vitals from Firebase |
-| `caretaker-dashboard/` | **Caretaker** | Web dashboard — Maps, vitals (browser) |
+| `mobile_app/` | **Elder** | Care home screen + BLE GPS gateway |
+| `caretaker_app/` | **Family** | Alerts and consent-filtered summary |
+
+`caretaker-dashboard/` is leftover web UI and is **not** needed for the product.
 
 ## Caretaker apps
 
@@ -70,6 +83,18 @@ Detection uses **5-feature threshold voting** today. When your TinyML model is r
 ```bash
 npx vercel --prod
 ```
+
+## What you should do
+
+1. **Flash firmware** `firmware/neuroguard_main/` after wiring vibe motor on **GPIO 26** (NPN) and SOS on **GPIO 5**. Hold 2 s = SOS. Short press during “Are you okay?” = cancel.
+2. **Put SMS numbers** in `firmware/neuroguard_main/config.h` (`CONTACTS[]`).
+3. **Add `google-services.json`** to both Flutter apps (same Firebase project). Rebuild APKs.
+4. **Elder demo without hardware:** open `mobile_app`, tap *Continue without band*, then medicine / check-in / Emergency / Band → *Demo: possible fall*. Watch `caretaker_app`.
+5. **Privacy demo:** turn Location OFF in the elder shield icon; family app should show “Not shared”. Leave *Location in emergencies only* ON if you want maps on SOS.
+6. **Say on stage:** possible fall / possible seizure-like event — **not diagnosis**. Kannada phrases should be checked by a native speaker.
+7. **Do not** build a separate Node/React dashboard unless judges ask; the family Flutter app is the product surface.
+
+Hardware still on you: coin vibe motor, large SOS button, LiPo if you want a wearable demo. Fall heuristic needs a drop-then-still motion; use the in-app demo button if the stage floor is unreliable.
 
 ## License
 

@@ -39,7 +39,7 @@ class PatientVitals {
   }
 
   String get stateLabel {
-    const labels = ['Monitoring', 'Possible seizure', 'Alert sent', 'Cancelled'];
+    const labels = ['Monitoring', '5s cancel window', 'Alert sent', 'Cancelled'];
     if (state >= 0 && state < labels.length) return labels[state];
     return 'Unknown';
   }

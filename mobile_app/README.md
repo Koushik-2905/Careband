@@ -1,8 +1,8 @@
-# NeuroGuard Patient GPS App (`mobile_app`)
+# CAREBand elder app (`mobile_app`)
 
-**Role:** Runs on the **patient's phone**. Connects to the wristband over BLE and **sends GPS every 10 seconds**. Forwards vitals and seizure events to **Firebase** for the caretaker app.
+**Role:** Runs on the **elder’s phone**. Large-button care UI (medicine, appointments, check-in, call family, emergency) plus BLE GPS gateway to the wristband. Forwards events to Firebase for `caretaker_app/`.
 
-This is **not** the main caregiver app — use `caretaker_app/` for alarms, maps, and alerts.
+Privacy toggles live in the shield icon. Judges can tap **Continue without band (demo)** on the scan screen.
 
 ## Setup
 

@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../models/seizure_event.dart';
 import '../services/alarm_service.dart';
+import '../services/firebase_caretaker_service.dart';
 import '../services/notification_service.dart';
 
 class AlarmScreen extends StatefulWidget {
@@ -34,14 +35,36 @@ class _AlarmScreenState extends State<AlarmScreen> with SingleTickerProviderStat
   Future<void> _silence() async {
     await AlarmService.stop();
     await NotificationService.cancelAll();
+    await FirebaseCaretakerService.clearActiveAlert();
     if (mounted) Navigator.of(context).pop();
   }
 
   Future<void> _openMaps() async {
-    if (!widget.event.valid) return;
-    final uri = Uri.parse(widget.event.mapsUrl);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    final e = widget.event;
+    if (e.lat.abs() < 0.0001 && e.lng.abs() < 0.0001) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No GPS yet — use Live vitals if a location appears there')),
+        );
+      }
+      return;
+    }
+    final uris = [
+      Uri.parse('google.navigation:q=${e.lat},${e.lng}'),
+      Uri.parse('geo:${e.lat},${e.lng}?q=${e.lat},${e.lng}'),
+      Uri.parse('https://www.google.com/maps/search/?api=1&query=${e.lat},${e.lng}'),
+      Uri.parse(e.mapsUrl),
+    ];
+    for (final uri in uris) {
+      try {
+        final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+        if (ok) return;
+      } catch (_) {}
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open Maps. Install Google Maps and try again.')),
+      );
     }
   }
 
@@ -78,8 +101,8 @@ class _AlarmScreenState extends State<AlarmScreen> with SingleTickerProviderStat
                 children: [
                   const Icon(Icons.warning_amber_rounded, size: 72, color: Colors.white),
                   const SizedBox(height: 16),
-                  const Text(
-                    'SEIZURE ALERT',
+                  Text(
+                    e.title.toUpperCase(),
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: Colors.white,
@@ -104,17 +127,16 @@ class _AlarmScreenState extends State<AlarmScreen> with SingleTickerProviderStat
                       ),
                     ),
                   const Spacer(),
-                  if (e.valid)
-                    FilledButton.icon(
-                      onPressed: _openMaps,
-                      icon: const Icon(Icons.map),
-                      label: const Text('Open Google Maps'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF00FF9D),
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
+                  FilledButton.icon(
+                    onPressed: _openMaps,
+                    icon: const Icon(Icons.map),
+                    label: const Text('Open Google Maps'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF00FF9D),
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
                     ),
+                  ),
                   const SizedBox(height: 12),
                   FilledButton.icon(
                     onPressed: _silence,

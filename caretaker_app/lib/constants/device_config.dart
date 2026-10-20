@@ -3,3 +3,5 @@ const String deviceId = 'neuroguard-001';
 
 const String vitalsPath = 'devices/$deviceId/vitals';
 const String eventsPath = 'devices/$deviceId/events';
+const String carePath = 'devices/$deviceId/care';
+const String activeAlertPath = 'devices/$deviceId/activeAlert';

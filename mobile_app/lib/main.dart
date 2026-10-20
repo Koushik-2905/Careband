@@ -17,15 +17,12 @@ class NeuroGuardApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'NeuroGuard Patient GPS',
+      title: 'CAREBand',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF050A07),
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF00FF9D),
-          secondary: Color(0xFF00B4D8),
-        ),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1B4332)),
+        scaffoldBackgroundColor: const Color(0xFFF4EFE4),
+        useMaterial3: true,
       ),
       home: const ScanScreen(),
     );

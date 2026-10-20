@@ -1,5 +1,6 @@
 # Arduino Library Manager
-MPU6050 by Electronic Cats
+Adafruit MPU6050
+Adafruit Unified Sensor
 Adafruit SSD1306
 Adafruit GFX Library
 ArduinoJson by Benoit Blanchon

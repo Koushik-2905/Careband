@@ -3,7 +3,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import '../constants/ble_uuids.dart';
 import '../services/permissions_service.dart';
-import 'gps_relay_screen.dart';
+import 'elder_home_screen.dart';
 
 class ScanScreen extends StatefulWidget {
   const ScanScreen({super.key});
@@ -65,7 +65,7 @@ class _ScanScreenState extends State<ScanScreen> {
     if (!mounted) return;
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => GpsRelayScreen(device: device)),
+      MaterialPageRoute(builder: (_) => ElderHomeScreen(device: device)),
     );
     _startScan();
   }
@@ -73,10 +73,10 @@ class _ScanScreenState extends State<ScanScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF050A07),
+      backgroundColor: const Color(0xFFF4EFE4),
       appBar: AppBar(
-        backgroundColor: Colors.black,
-        title: const Text('Patient GPS', style: TextStyle(color: Color(0xFF00FF9D))),
+        backgroundColor: const Color(0xFF1B4332),
+        title: const Text('CAREBand — connect band'),
         actions: [
           IconButton(
             icon: _scanning
@@ -95,14 +95,14 @@ class _ScanScreenState extends State<ScanScreen> {
           if (_error != null)
             Padding(
               padding: const EdgeInsets.all(16),
-              child: Text(_error!, style: const TextStyle(color: Color(0xFFFF4D6D))),
+              child: Text(_error!, style: const TextStyle(color: Color(0xFF9B1C1C), fontSize: 18)),
             ),
           Expanded(
             child: _results.isEmpty
                 ? Center(
                     child: Text(
-                      _scanning ? 'Scanning for NeuroGuard wristband…' : 'No device found. Power on ESP32.',
-                      style: const TextStyle(color: Colors.white54),
+                      _scanning ? 'Scanning for CAREBand / NeuroGuard…' : 'No device found. Power on the ESP32.',
+                      style: const TextStyle(fontSize: 18, color: Color(0xFF3D4A40)),
                     ),
                   )
                 : ListView.builder(
@@ -114,14 +114,30 @@ class _ScanScreenState extends State<ScanScreen> {
                           r.device.platformName.isNotEmpty
                               ? r.device.platformName
                               : BleUuids.deviceName,
-                          style: const TextStyle(color: Colors.white),
+                          style: const TextStyle(fontSize: 20, color: Colors.black),
                         ),
-                        subtitle: Text(r.device.remoteId.str, style: const TextStyle(color: Colors.white38)),
-                        trailing: const Icon(Icons.chevron_right, color: Color(0xFF00FF9D)),
+                        subtitle: Text(r.device.remoteId.str),
+                        trailing: const Icon(Icons.chevron_right),
                         onTap: () => _connect(r.device),
                       );
                     },
                   ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: SizedBox(
+              height: 64,
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ElderHomeScreen()),
+                  );
+                },
+                child: const Text('Continue without band (demo)', style: TextStyle(fontSize: 18)),
+              ),
+            ),
           ),
         ],
       ),

@@ -18,7 +18,8 @@
 #include <ArduinoJson.h>
 
 #if !SIMULATION_MODE
-#include <MPU6050.h>
+#include <Adafruit_MPU6050.h>
+#include <Adafruit_Sensor.h>
 #if ENABLE_OLED
 #include <Adafruit_SSD1306.h>
 #endif
@@ -64,11 +65,13 @@ void initBLE();
 void readIMU();
 void dispatchAlerts();
 void activateLocal();
+void alertBuzzerPulse(int count = 3);
 void doCancel();
 void sendSMS(const char *num, const char *msg);
 void broadcastData();
 void IRAM_ATTR handleSOS();
 void scanI2C();
+const char *stateLabel(DeviceState s);
 
 class ServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer *s) {
@@ -120,6 +123,17 @@ void scanI2C() {
   if (n == 0) Serial.println("  (none — check wiring 21/22, 3.3V, GND)");
 }
 
+const char *stateLabel(DeviceState s) {
+  switch (s) {
+    case MONITORING: return "MONITORING";
+    case DETECTED: return "DETECTED";
+    case ALERT_SENT: return "ALERT_SENT";
+    case WAITING_RESET: return "WAITING_RESET";
+    case CANCELLED: return "CANCELLED";
+    default: return "UNKNOWN";
+  }
+}
+
 void setup() {
 #if DISABLE_BROWNOUT
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
@@ -147,8 +161,10 @@ void setup() {
 
   Wire.begin(I2C_SDA, I2C_SCL);
   Wire.setClock(100000);
-#if defined(Wire.setTimeOut)
+#if defined(ARDUINO_ARCH_ESP32)
   Wire.setTimeOut(I2C_TIMEOUT_MS);
+#elif defined(TWOWIRE_HAS_TIMEOUT) || defined(WIRE_HAS_TIMEOUT)
+  Wire.setTimeout(I2C_TIMEOUT_MS);
 #endif
   Serial.print("I2C SDA=");
   Serial.print(I2C_SDA);
@@ -201,6 +217,7 @@ void loop() {
   static unsigned long tMl = 0;
 
 #if USE_HARDWARE_LOGIC && !SIMULATION_MODE
+  static unsigned long tDiag = 0;
   if (millis() - tHw >= HARDWARE_TICK_MS) {
     tHw = millis();
     hwState = hardwareLogicTick();
@@ -210,8 +227,16 @@ void loop() {
       state = DETECTED;
       tDetect = millis();
       activateLocal();
-      Serial.printf("[DETECT] %s\n", hwState.status);
+      detCtx.confidence = 0.92f;
+      Serial.println("\n========================================");
+      Serial.println(">>> SEIZURE THRESHOLDS BREACHED! <<<");
+      Serial.println("========================================\n");
     }
+  }
+
+  if (state == MONITORING && millis() - tDiag >= 500) {
+    tDiag = millis();
+    hardwareLogicPrintDiagnostics();
   }
 #endif
 
@@ -237,17 +262,15 @@ void loop() {
       }
 #endif
 
-      bool mlTrigger = gMlReady && (detCtx.mlSeizureScore >= ML_ALERT_THR);
-      if (state == MONITORING && (mlTrigger
 #if !USE_HARDWARE_LOGIC
-          || detCtx.confidence > CONFIDENCE_THR
-#endif
-          )) {
+      bool mlTrigger = gMlReady && (detCtx.mlSeizureScore >= ML_ALERT_THR);
+      if (state == MONITORING && (mlTrigger || detCtx.confidence > CONFIDENCE_THR)) {
         state = DETECTED;
         tDetect = millis();
         activateLocal();
         Serial.printf("[DETECT] ML/threshold confidence: %.2f\n", detCtx.confidence);
       }
+#endif
     }
   }
 
@@ -256,10 +279,15 @@ void loop() {
     if (cancelFlag) {
       doCancel();
     } else if (elapsed >= CANCEL_WINDOW_MS) {
-      digitalWrite(BUZZER_PIN, HIGH);
+      if (detCtx.confidence < 0.5f) detCtx.confidence = 0.92f;
       dispatchAlerts();
       state = ALERT_SENT;
+      digitalWrite(BUZZER_PIN, LOW);
+      digitalWrite(VIB_MOTOR_PIN, LOW);
+      digitalWrite(LED_PIN, LOW);
     } else {
+      // Buzzer on during 5 s cancel window (press SOS to stop).
+      digitalWrite(BUZZER_PIN, HIGH);
       showPressToStopOLED();
     }
   }
@@ -273,10 +301,23 @@ void loop() {
     }
     if (millis() - tAlive >= 2000) {
       tAlive = millis();
-      Serial.print("[alive] BPM=");
+      Serial.print("[alive] state=");
+      Serial.print(stateLabel(state));
+      Serial.print(" BPM=");
       Serial.print(detCtx.hrBPM);
+      Serial.print(" Mag=");
+      Serial.print(patientMonitor.debug_currentMag, 1);
       Serial.print(" BLE=");
       Serial.println(deviceConnected ? "connected" : "advertising");
+    }
+  } else {
+    static unsigned long tAliveAlert = 0;
+    if (millis() - tAliveAlert >= 2000) {
+      tAliveAlert = millis();
+      Serial.print("[alive] state=");
+      Serial.print(stateLabel(state));
+      Serial.print(" BPM=");
+      Serial.println(detCtx.hrBPM);
     }
   }
 
@@ -287,11 +328,23 @@ void loop() {
     Serial.println("[GPS] Phone fix stale — open patient GPS app");
   }
 
-  if (state == ALERT_SENT && millis() - tDetect > 60000) {
-    state = MONITORING;
-    cancelFlag = false;
+  if (state == ALERT_SENT && millis() - tDetect >= ALERT_COOLDOWN_MS) {
+    state = WAITING_RESET;
     digitalWrite(BUZZER_PIN, LOW);
-    showBpmOLED(detCtx.hrBPM);
+    showOLED("Waiting", "for patient", "to stabilize...");
+    Serial.println("[ALERT] Cooldown done — waiting for patient to stabilize");
+  }
+
+  if (state == WAITING_RESET) {
+    if (!patientMonitor.debug_isShaking && patientMonitor.getCurrentFreq() < 1.0f) {
+      state = MONITORING;
+      cancelFlag = false;
+      digitalWrite(BUZZER_PIN, LOW);
+      digitalWrite(VIB_MOTOR_PIN, LOW);
+      digitalWrite(LED_PIN, LOW);
+      showBpmOLED(detCtx.hrBPM);
+      Serial.println(">>> System Reset & Armed.");
+    }
   }
 }
 
@@ -303,12 +356,13 @@ void dispatchAlerts() {
     strcpy(loc, "GPS unavailable — patient phone not connected");
   }
 
-  char sms[280];
-  snprintf(sms, 280, "NEUROGUARD ALERT: Seizure! HR:%dBPM Conf:%.0f%% %s", detCtx.hrBPM,
-           (double)(detCtx.confidence * 100), loc);
+  char sms[320];
+  snprintf(sms, 320, "%s HR:%dBPM %s", SMS_ALERT_TEXT, detCtx.hrBPM, loc);
 
 #if ENABLE_GSM
+  Serial.println("[ALERT] Sending SMS...");
   for (int i = 0; i < CONTACT_COUNT; i++) {
+    Serial.printf("[ALERT] SMS -> %s\n", CONTACTS[i]);
     sendSMS(CONTACTS[i], sms);
     delay(2000);
   }
@@ -332,14 +386,27 @@ void dispatchAlerts() {
     serializeJson(doc, buf);
     alertChar->setValue(buf);
     alertChar->notify();
+    Serial.printf("[ALERT] BLE notify sent: %s\n", buf);
+  } else {
+    Serial.println("[ALERT] BLE notify skipped (phone not connected)");
   }
 
   showOLED("ALERT SENT!", "SMS + BLE", "Help coming...");
+  alertBuzzerPulse(3);
   Serial.println("[ALERT] All notifications dispatched");
 }
 
+void alertBuzzerPulse(int count) {
+  for (int i = 0; i < count; i++) {
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(120);
+    digitalWrite(BUZZER_PIN, LOW);
+    delay(120);
+  }
+}
+
 void activateLocal() {
-  digitalWrite(BUZZER_PIN, LOW);
+  digitalWrite(BUZZER_PIN, HIGH);
   digitalWrite(LED_PIN, HIGH);
   digitalWrite(VIB_MOTOR_PIN, HIGH);
 }
@@ -357,7 +424,10 @@ void doCancel() {
 void IRAM_ATTR handleSOS() {
   if (state == DETECTED)
     cancelFlag = true;
-  else if (state == MONITORING) {
+  else if (state == ALERT_SENT || state == WAITING_RESET) {
+    state = MONITORING;
+    cancelFlag = false;
+  } else if (state == MONITORING) {
     state = DETECTED;
     tDetect = millis() - CANCEL_WINDOW_MS;
   }
@@ -409,28 +479,31 @@ void readIMU() {
   detCtx.aY[detCtx.bufIdx] = cosf(t * 8.0f) * 0.1f;
   detCtx.aZ[detCtx.bufIdx] = 1.0f;
   detCtx.gX[detCtx.bufIdx] = detCtx.gY[detCtx.bufIdx] = detCtx.gZ[detCtx.bufIdx] = 0;
-#else
-  int16_t ax = 0, ay = 0, az = 0, gx = 0, gy = 0, gz = 0;
-  if (gMpuOk) {
-    mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
-  }
-  detCtx.aX[detCtx.bufIdx] = ax / 16384.0f;
-  detCtx.aY[detCtx.bufIdx] = ay / 16384.0f;
-  detCtx.aZ[detCtx.bufIdx] = az / 16384.0f;
-  detCtx.gX[detCtx.bufIdx] = gx / 131.0f;
-  detCtx.gY[detCtx.bufIdx] = gy / 131.0f;
-  detCtx.gZ[detCtx.bufIdx] = gz / 131.0f;
-#endif
   detCtx.bufIdx = (detCtx.bufIdx + 1) % WINDOW_SIZE;
   if (detCtx.bufIdx == 0) detCtx.bufFull = true;
+#else
+  if (gLastMpuEventOk) {
+    detCtx.aX[detCtx.bufIdx] = gLastAx / 9.80665f;
+    detCtx.aY[detCtx.bufIdx] = gLastAy / 9.80665f;
+    detCtx.aZ[detCtx.bufIdx] = gLastAz / 9.80665f;
+    detCtx.gX[detCtx.bufIdx] = gLastGx;
+    detCtx.gY[detCtx.bufIdx] = gLastGy;
+    detCtx.gZ[detCtx.bufIdx] = gLastGz;
+    detCtx.bufIdx = (detCtx.bufIdx + 1) % WINDOW_SIZE;
+    if (detCtx.bufIdx == 0) detCtx.bufFull = true;
+  }
+#endif
 }
 
 void initMPU() {
 #if !SIMULATION_MODE && !USE_HARDWARE_LOGIC
-  mpu.initialize();
-  mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_2);
-  mpu.setFullScaleGyroRange(MPU6050_GYRO_FS_250);
-  mpu.setDLPFMode(MPU6050_DLPF_BW_42);
+  if (mpu.begin()) {
+    mpu.setAccelerometerRange(MPU6050_RANGE_2_G);
+    mpu.setGyroRange(MPU6050_RANGE_250_DEG);
+    mpu.setFilterBandwidth(MPU6050_BAND_44_HZ);
+  } else {
+    Serial.println("[SENSORS] MPU6050 not found");
+  }
 #if ENABLE_HR_SENSOR
   MAX30105 particleSensor;
   if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) {
@@ -568,7 +641,7 @@ void initBLE() {
 
   BLEAdvertising *adv = BLEDevice::getAdvertising();
   adv->addServiceUUID(SERVICE_UUID);
-  adv->setScanResponse(true);
+  adv->setScanResponse(false);
   BLEDevice::startAdvertising();
 
   Serial.println("[BLE] Advertising as 'NeuroGuard' (patient app can scan)");

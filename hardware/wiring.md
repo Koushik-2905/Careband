@@ -20,7 +20,7 @@
 | Buzzer | 4 or 25 (avoid **GPIO 2** — boot strap pin) | NPN 2N2222 |
 | Vibration | 26 | NPN 2N2222 |
 | LED | 27 | 220Ω series |
-| SOS / cancel button | 5 (D5) | INPUT_PULLUP → GND when pressed |
+| SOS / cancel button | 5 (D5) | INPUT_PULLUP → GND when pressed. Hold **2 s** for SOS (skips “Are you okay?”). Short press during a suspected event = **I’m OK** (cancel). |
 
 ## Power
 

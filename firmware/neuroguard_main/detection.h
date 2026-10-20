@@ -2,7 +2,7 @@
 
 #include "config.h"
 
-enum DeviceState { MONITORING, DETECTED, ALERT_SENT, CANCELLED };
+enum DeviceState { MONITORING, DETECTED, ALERT_SENT, WAITING_RESET, CANCELLED };
 
 struct DetectionContext {
   float aX[WINDOW_SIZE], aY[WINDOW_SIZE], aZ[WINDOW_SIZE];
